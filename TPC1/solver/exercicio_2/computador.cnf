@@ -1,0 +1,33 @@
+c (1) CPU1 -> O computador tem CPU1.
+c (2) CPU2 -> O computador tem CPU2.
+c (3) RAM1 -> O computador tem RAM1.
+c (4) RAM3 -> O computador tem RAM2.
+c (5) MB1 -> O computador tem MB1.
+c (6) MB2 -> O computador tem MB2.
+c (7) PG1 -> O computador tem PG1.
+c (8) PG2 -> O computador tem PG2.
+c (9) PG3 -> O computador tem PG3.
+c (10) MON1 -> O computador tem MON1.
+c (11) MON2 -> O computador tem MON2.
+c (12) MON3 -> O computador tem MON3.
+
+p cnf 12 22
+1 2 0
+-1 -2 0
+5 6 0
+-5 -6 0
+3 4 0
+-3 -4 0
+7 8 9 0
+-7 -8 0
+-7 -9 0
+-8 -9 0
+10 -10 0
+11 -11 0
+12 -12 0
+-5 -7 3 0
+-7 4 1 0
+-2 6 0
+-10 7 0
+-10 4 0
+-11 -9 4 0
