@@ -6,6 +6,7 @@ one sig Root in Node {}
 
 sig Red, Black in Node {}
 
+// EXPLICITAR TODAS AS PROPRIEDADES QUE TORNAM UMA ÁRVORE BINÁRIA RED-BLACK VÁLIDA.
 
 pred Invs {
 	// (1). Every node (non Leaf) is colored black or red.
