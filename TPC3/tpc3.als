@@ -18,9 +18,9 @@ pred stutter{
 pred createAccount[u : User]{
   	// guard
   	no u.password and u not in LoggedIn
-    // effect
+    	// effect
   	some pwd: Password | password' = password + u->pwd
-    // frame condition
+    	// frame condition
   	LoggedIn' = LoggedIn
 }
 
@@ -94,12 +94,12 @@ pred behavior {
 	no LoggedIn
   	
   	always{
-      (some u: User, pwd: Password |
+      	    (some u: User, pwd: Password |
       		createAccount[u]
       		or login[u,pwd]
-            or changePassword[u,pwd]
-            or logout[u]
+            	or changePassword[u,pwd]
+            	or logout[u]
       		or deleteAccount[u]
-  	  ) or stutter
+  	    ) or stutter
   	}
 }
