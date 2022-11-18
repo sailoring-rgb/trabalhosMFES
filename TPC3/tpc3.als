@@ -8,98 +8,69 @@ var sig LoggedIn in User {}
 // To check how many points you have so far you can use the different commands. 
 // The maximum is 5 points.
 
+fact{
+  	// Todos os usuários não logados podem ter ou não password (dependendo se estão ou não registados)
+  	all u: User-LoggedIn | lone u.password
+  	// Todos os usuários logados têm uma e só uma password
+	all u: User | u in LoggedIn implies one u.password
+}
+
 
 pred stutter{
+  	all u: User | u.password' = u.password
 	LoggedIn' = LoggedIn
-	password' = password
 }
 
 
-pred createAccount[u : User]{
-  	// guard
-  	no u.password and u not in LoggedIn
-    	// effect
-  	some pwd: Password | password' = password + u->pwd
-    	// frame condition
-  	LoggedIn' = LoggedIn
+pred createAccount[u : User, pwd : Password]{
+  	u->pwd not in password
+ 	historically u not in LoggedIn
+  	password' = password + u->pwd
+  	LoggedIn' = LoggedIn + u
 }
 
 
-pred login[u : User, pwd : Password]{
-  	// guards
-	u not in LoggedIn
-  	one u.password and u->pwd in password
-  	// effect
-	LoggedIn' = LoggedIn + u
-  	// frame condition
-  	password' = password
+pred deleteAccount[u : User, pwd : Password]{
+  	u in LoggedIn and pwd in u.password
+  	password' = password - u->pwd
+  	LoggedIn' = LoggedIn - u
 }
 
 
 pred changePassword[u : User, newPwd : Password]{
-	// guards 
+  	u in LoggedIn
 	historically u->newPwd not in password
-	u in LoggedIn
-  	one u.password
-	// effect
- 	all oldPwd: u.password | password' = password - u->oldPwd + u->newPwd
-  	// frame condition
+  	password' = password - u->u.password + u->newPwd
 	LoggedIn' = LoggedIn
 }
 
 
+pred login[u : User]{
+	u not in LoggedIn and one u.password
+	LoggedIn' = LoggedIn + u
+  	password' = password
+}
+
+
 pred logout[u : User]{
-	// guard
 	u in LoggedIn
-  	// effect
   	LoggedIn' = LoggedIn - u
-  	// frame condition
  	password' = password
-}
-
-
-pred deleteAccount[u : User]{
-  	// guard
-	u in LoggedIn
-  	// effect
-  	LoggedIn' = LoggedIn - u
-  	// frame condition
-  	no password'
-}
-
-
-fact Proprieties{
-  
-  	// Criar conta só será verdadeira até apagar conta.
-  	all u: User | always (createAccount[u] until deleteAccount[u])
-  
-  	// Fazer login implica que a conta já tenha sido registada uma vez e, também, só é verdadeiro até fazer logout.
-	all u: User | all pwd: u.password | always ((login[u,pwd] implies once createAccount[u]) and (login[u,pwd] until logout[u]))
-  
-  	// Fazer logout implica que o login já tenha sido feito e o logout torna falso o login.
-  	all u: User | all pwd: u.password | always ((logout[u] implies once login[u,pwd]) and (logout[u] releases login[u,pwd]))
-  
-  	// Apagar conta implica que a conta já tenha sido registada e torna falso criar conta.
-  	all u: User | always ((deleteAccount[u] implies once createAccount[u]) and (deleteAccount[u] releases createAccount[u]))
-  
-  	// Mudar de password implica que o login já tenha sido feito.
-  	all u: User | all pwd: u.password | some newPwd: Password - pwd | always (changePassword[u,newPwd] implies once login[u,pwd])
-  
 }
 
 
 pred behavior {
 
-	no password
 	no LoggedIn
-  	
+	all u: User | no u.password
+  
   	always{
-      	    (some u: User, pwd: Password |
-      		createAccount[u]
-      		or login[u,pwd]
-            	or changePassword[u,pwd]
-            	or logout[u]
-      		or deleteAccount[u]
-  	    ) or stutter
+      (some u: User, pwd: Password |
+      		createAccount[u,pwd]
+            or changePassword[u,pwd]
+      		or deleteAccount[u,pwd]
+      		or login[u]
+            or logout[u]
+  	  ) or stutter
   	}
 }
