@@ -65,12 +65,12 @@ pred behavior {
 	all u: User | no u.password
   
   	always{
-      (some u: User, pwd: Password |
+	    (some u: User, pwd: Password |
       		createAccount[u,pwd]
-            or changePassword[u,pwd]
+            	or changePassword[u,pwd]
       		or deleteAccount[u,pwd]
       		or login[u]
-            or logout[u]
-  	  ) or stutter
+            	or logout[u]
+  	    ) or stutter
   	}
 }
