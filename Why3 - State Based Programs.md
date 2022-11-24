@@ -1,413 +1,249 @@
-# Why3: Verification of Functional Programs
+# Why3: State-based Development
 
-This note is an introduction to the use of Why3 for the specific purpose of verifying functional programs (just one of the many uses of the tool). We take a tour of Why3s logic and programming languages and the ways in which they interact, and illustrate different ways to conduct inductive proofs. Finally, we also cover the refinement mechanism that is available through *module cloning*. 
+A deductive verification tool like Why3 can be used to check the behavior of a collection of functions working on a shared state, such as classes in object-oriented programming (sharing instance variables), smart contracts in blockchain development, or multi-threaded concurrent programming (based on shared memory). 
 
-<br>
+We will illustrate this by means of an example where we model functions operating on a bank account. 
+The global shared state stores the balance of each account, identified by a number.
 
-## Insertion Sort as a logic function 
 
-We start by defining the insertion sort algorithm on integer lists as follows: 
-
-```
-    module InsertionSort
-        use int.Int
-        use list.List
-        use list.Permut
-        use list.SortedInt
+    module Accounts_MapImp
+      use int.Int
+      type accNumber = int 
+      type amount    = int
     
-        function insert (i :int) (l :list int) : list int =
-            match l with
-                | Nil      -> Cons i Nil
-                | Cons h t -> if i <= h then Cons i (Cons h t) else Cons h (insert i t)
-            end
+      val open (n :accNumber) : ()
+      val deposit (n :accNumber) (x :amount) : () 
+      val withdraw (n :accNumber) (x :amount) : () 
+      val transfer (from :accNumber) (to_ :accNumber) (x :amount) : () 
+    
+
+We need a way to associate balances with account numbers. We will use a Why3  **finite map**  type for this purpose. Map types implement dictionaries; the Why3 library https://why3.lri.fr/stdlib/fmap.html makes the following available:
+
+
+-  a logic-level map type (module `Fmap`) that cannot be extracted to code; 
+- and two programming map types, that can be extracted (typically implemented as hash tables)
+    - a â€œfunctionalâ€ type (module `MapApp`) 
+    - and an â€œimperativeâ€ type (module `MapImp`)
         
-        function iSort (l :list int) : list int =
-            match l with
-                | Nil      -> Nil
-                | Cons h t -> insert h (iSort t)
-            end
-```
 
-The permutation and order properties can be expressed using predicates defined in the `[list](http://why3.lri.fr/stdlib/list.html)` library modules, imported as shown above. For instance the `sorted` inductive predicate is defined in the `list.Sorted` module as follows (and is in turn cloned by the `list.SortedInt` module) : 
+Since we want to program with maps we will use programming types. 
+
+We start by using the imperative type. The read and write functions on this type are specified in the library as follows. Note that the `find` and `add` functions used in the contracts are synonymous logic-level functions: the behavior of programming-level maps is specified using the `Fmap` logic type. 
 
 
-    inductive sorted (l: list t) =
-        | Sorted_Nil:
-            sorted Nil
-        | Sorted_One:
-            forall x: t. sorted (Cons x Nil)
-        | Sorted_Two:
-            forall x y: t, l: list t.
-            le x y -> sorted (Cons y l) -> sorted (Cons x (Cons y l))
+      val find (k: key) (m: t 'v) : 'v
+        requires { mem k m }
+        ensures  { result = m[k] }
+        ensures  { result = find k m }
+    
+      val add (k: key) (v: 'v) (m: t 'v) : unit
+        writes  { m }
+        ensures { m = add k v (old m) }
     
 
-As defined above,  `insert` and `iSort` functions are both logic functions, and we can write lemmas about them. For instance we require the following two about `insert` :  
+Programming types are used by *cloning* the respective module into our own. In this concrete case we will instantiate the type of the map keys:
 
 
-    lemma insert_sorted: forall a :int, l :list int. 
-                        sorted l -> sorted (insert a l)
+     clone fmap.MapImp with type key = accNumber
 
-    lemma insert_perm: forall x :int, l :list int. 
-                        permut (Cons x l) (insert x l)
+The type of maps with `accNumber` as keys is now available with name `t`. The following declares the state variable `accounts` as a map with values of type `amount`:
+
+
+      val accounts : t amount 
+
+
+We wish to write functions to do the following tasks:
+
+- *open* a new account with a given account number
+- *deposit* funds into a given account 
+- *withdraw* funds from an account 
+- *transfer* funds internally from an account to another 
+
+As a first step let us consider a natural language specification of their behavior.
+For instance:
+
+
+- given an account number `n` , the call `open n` will insert the pair (`n` â†’0) in the `accounts` dictionary
+    
+- given an account number `n`  and an amount `x`, the call `deposit n x` will add `x` to the current balance of account `n`
+
+The next step is to discuss what the functions should do in case they receive unexpected argument values. What should happen if
+
+
+- in a call `open n`, the account number `n` already exists, i.e. it is already present in the domain of `accounts` ?
+    
+- in a call `deposit n x`, 
+    - the number `n` is not a valid account number (i.e. it is not in the domain of `accounts`, 
+    - or `x` is a negative number ? 
+
+We will choose *not to program defensively* : the functions will take for granted that the above situations do not occur. 
+
+So the definitions are really simple: 
+
+
+      let open (n :accNumber) : ()
+      = add n 0 accounts
+    
+      let deposit (n :accNumber) (x :amount) : () 
+      = let bal = find n accounts in 
+        add n (bal+x) accounts 
     
 
-Now, notice that `insert` has a structural recursive definition (the recursive call is performed on the tail of the list). This means that the above lemmas can both be proved using a simple induction principle; in Why3 they can be proved using the `induction_ty_lex`  proof transformation.  
-
-With the above lemmas, we may now move to proving results about the sorting algorithm: 
+Now, in the absence of defensive programming it is the callerâ€™s responsibility to make sure that all calls satisfy the desired conditions, which should be included in the contracts of the callee functions as preconditions: 
 
 
-    lemma sort_sorted: forall l :list int.
-                        sorted (iSort l)
-
-    lemma sort_perm: forall l :list int.
-                    permut l (iSort l)
+      let open (n :accNumber) : ()
+        requires { not mem n accounts }
+      = add n 0 accounts
     
-
-`iSort` is also defined in a similar way, so both these lemmas can again be proved using `induction_ty_lex`. 
-
-We can state the final result about the algorithm by defining what a sorting function is, and then proving that `iSort` is such a function. 
-
-
-    predicate is_a_sorting_algorithm (f: list int -> list int) =
-        forall al :list int. permut al (f al) /\ sorted (f al)
-
-    goal insertion_sort_correct: is_a_sorting_algorithm iSort
-
-    end
-
-The proof of the goal does not require induction (it results directly from the two previous lemmas). 
-
-
-## Insertion Sort as a program function 
-
-[[permalink](https://why3.lri.fr/try/?name=test.mlw&lang=whyml&code=AN4moduleyInsertionSortProgram%2FNH1useC1int7tA1IntHqC2listqA2ListHqCqq4PermutHqCqqySortedInt%2FBHqCqq4LengthNNH1let1rec6function4insert7nzi7ve7opzlphooqqqJ6requires774sortedm79BH5ensuresCpp4resultpBHpCp4permutph2ConsfkfkBH7yH3matchp2withH781Nil7MzjjqHpqzhztn0ifm7Ryo2thenmpiBMb2elseqocSnibMB1endNNHOOO3iSortkg7vuIuIjqqqJPPOPPBHppOpjoBHOHOqOBHPOOsHrSSUoSqYXoBXBFTNNHypredicate%2Fyis%2Ba%2Bsorting%2Balgorithm%2FnzfTTTgrrkZBJ4forall0alBmAnn7tBToiirj7O3PooooNF2goalyinsertion%2Bsort%2Bcorrect%2FhdZNNHuN2main7HoaLqPrSz2erz3rrz1uT7Io0inBHgjNNNPNN)]
-
-An alternative possibility is to write the algorithm as a program (WhyML) function equipped with a *contract,* similarly to what would be done with an imperative program function. 
-
-Let us start with the helper function `insert` : its contract states that it should receive a sorted list, and it will also return a sorted list. Moreover, the result contains the same multiset of elements as the input list, extended with the inserted element. 
-
-
-    module InsertionSortProgram
-        use  ...
-    
-    let rec function insert (i: int) (l: list int) : list int
-        requires { sorted l } 
-        ensures  { sorted result } 
-        ensures  { permut result (Cons i l) } 
-        =
-        match l with
-            | Nil -> Cons i Nil
-            | Cons h t -> if i <= h then Cons i l else Cons h (insert i t)
-        end
-    
-
-The verification conditions generated by Why3 for this function are all easily proved with the help of an SMT solver, using one of the auto strategies (depending on your setup this may not even require splitting the VC). 
-
-There are several observations to be made here. First of all, note that whereas for a typical iterative algorithm you would have to provide one or more loop invariants that would allow for the functionâ€™s contract to be established, in a recursive function the contract itself plays the role of invariant as well: the very contract of the function that is being verified is used to generate a verification condition regarding the recursive call. 
- 
-A second remark is that, when compared with the logic version of the algorithm, no manual proof transformation is required now to make explicit the induction principle to be used: this is implicitly given by the function definition itself. 
-
-The same remarks apply to the `iSort` function, also proved correct using an auto strategy: 
-
-
-    let rec function iSort (l: list int) : list int
-        ensures { sorted result } 
-        ensures { permut result l } 
-        =
-        match l with 
-            | Nil -> Nil
-            | Cons h t -> insert h (iSort t ) 
-        end
-    
-    predicate is_a_sorting_algorithm (f: list int -> list int) = 
-        forall al :list int. permut al (f al) /\ sorted (f al)
-    
-    goal insertion_sort_correct: is_a_sorting_algorithm iSort
-    
-    end
-
-Observe also the final goal above, a logic statement involving the program function `iSort`. The fact that this can be written means that, in fact, `iSort` inhabits both namespaces: it is both a program function and a logic function. We remark the following:
-
-
-- This is optional! We could choose to make the function exist only at the program level, in which case it would not be possible to mention it in the logic (as in the above goal)
-    
-- Only pure program functions, with no side effects, can be declared as `function` . When reasoning about functional programs it makes sense to do this, which will result in a particular kind of usage of Why3. In practice, functional programs can be used in the logic but specified and verified using contracts, which facilities inductive proofs 
-    ( AND TERMINATION ).
-
-
-
-
-
-## Mergesort as a program function 
-
-[[permalink](https://why3.lri.fr/try/?name=test.mlw&lang=whyml&code=A4moduleyMergeSort%2FNH1use1int7tA1IntHq2listqA2ListHqqq4LengthHqqq4PermutHqqq4AppendHqqqySortedInt%2FNNNH1let1rec6function3split7nzlB7vAkd7oqopp7rrroJ5ensures77hm0l1lA0l2m7y4result0in4lengthe7xz27Xuhoo7Tyo7O3pflrnprgprpg79HbbbgibAilbbb4permutgkk7KqkkfBFjJ3matchl2withH781Nil7MzhrdBsjHo2ConszxpmmpppmsmHmo0x1mr0x2i7GoiXnahbhcuLjA7mMdWkfeiiqehhMB1endNNNHfuJuJ3mergehilB7vAuJuJiqBqqJ6requires774sortedluLrkC79HuMCnpuMpBHpCpuMfkuMkekkBFQJuMmUmuMH78uMpz%2BuNnHoqpoomHofP0a1p7GIrpp0a2iuMk0ifnk7RymZCCCCCCCC7HpC1may5require2case6analysiskk7xk7c8qUqiC7JoMl2thenlamruUX7mX7IoH2elsenlhrllm7GIoMBuQNNHHuQuQuQymergesort%2Fkzl7vuQuQXJuT77uSuU79BHppuSjooBH5variantouLopFOJuSquSH78uSuUsHrPzxqpqqqHpz%2BoCBTWP7rAOWeuLeMKuLugkPjlqqkqMDuhNNNNFypredicate%2Fyis%2Ba%2Bsorting%2Balgorithm%2FnzfA7vujujarrkcBJ4forall0almnn7tBuloiirjuOuiooooNF2goaleBhsaNNNNb)]
-
-Let us move to a more complicated algorithm.  The functional mergesort algorithm requires two helper functions, one to split the input list in two lists of the same size, and another to merge two sorted lists. We will write both as WhyML functions equipped with contracts; for `split` the contract merely says that together the result lists contain the same elements as the input; for `merge` we require the input lists to be sorted and in addition to the permutation aspect the contract states that the result is a sorted list: 
-
-
-    module MergeSort
-        use ...
-        
-        let rec function split (l :list int) : (list int, list int)
-            ensures { let (l1,l2) = result in permut l (l1 ++ l2) } 
-            =
-            match l with
-                | Nil -> (Nil, Nil)
-                | Cons x Nil -> (Cons x Nil, Nil)
-                | Cons x1 (Cons x2 l') -> let (l1, l2) = split l'
-                                        in (Cons x1 l1, Cons x2 l2)
-            end
-        
-        let rec function merge (l1 l2 :list int) : list int
-            requires { sorted l1 /\ sorted l2  }
-            ensures { sorted result } 
-            ensures { permut (l1 ++ l2) result } 
-            =
-            match l1, l2 with
-                | Nil, _ -> l2
-                | _, Nil -> l1
-                | (Cons a1 l1'), (Cons a2 l2') -> if (a1 <= a2)                      
-                                                then (Cons a1 (merge l1' l2))
-                                                else (Cons a2 (merge l1 l2'))
-            end
-    
-
-All the VCs generated for these functions are proved automatically with SMT solvers using an auto strategy. It is worth considering this for a moment, since both functions are quite different from what we had in insertion sort and its helper function. 
-
-
-- The recursive call in `split` is not performed on the tail of the list, but rather on the â€œtail of the tailâ€
-    
-- `merge` on the other hand takes two argument lists; the recursive call alternatively preserves one of them, and is structural in the other argument. 
-    
-- Why3 is still capable of proving the termination of both functions automatically 
-
-The main `mergesort` function implements the divide and conquer strategy using the above helpers: 
-
-
-    let rec function mergesort (l :list int)
-        ensures { sorted result } 
-        ensures { permut l result } 
-        variant { length l } 
-        =
-        match l with
-            | Nil -> Nil
-            | Cons x Nil -> Cons x Nil
-            | _ ->   let (l1,l2) = split l in merge (mergesort l1) (mergesort l2)
-        end
-    
-    end
-
-The first thing to notice is the presence of a **variant.** The termination of this function cannot be proved automatically, and in fact Why3 will reject the definition if a variant is not provided as part of the contract. 
-
-The variant `{ length l }` will however lead to the generation of a VC that cannot be proved: it is not possible to automatically establish that `split` produces two lists that are strictly shorter than its argument. 
-
-In order to allow for termination of `mergesort` to be proved, we then add the following postcondition in the contract of `split` : 
-
-
-    ensures { let (l1,l2) = result in length l < 2 \/ 
-            (length l >= 2 /\ length l1 < length l /\ length l2 < length l) }
+      let deposit (n :accNumber) (x :amount) : () 
+        requires { mem n accounts /\ x > 0 }
+      = let bal = find n accounts in 
+        add n (bal+x) accounts 
     
 
 
-
-## Mergesort as a logic function [ Optional Reading! ]
-
-We started by seeing a logic version of insertion sort, followed by a WhyML definition of insertion sort and then of mergesort. It is only natural to ask whether the latter algorithm can also be defined in logic. 
-
-New difficulties arise, which we will take as opportunities to discuss additional features of Why3. Let us start by looking at the first helper function, `split`. It can be defined as follows:
+We will now also include postconditions in the functionsâ€™ contracts. This will not only allow us to prove that the implementations respect the specifications (expressed above in natural language), but also that no calls are made that do not respect the preconditions.
 
 
-    function split (l :list int) : (list int, list int) =
-        match l with
-            | Nil -> (Nil, Nil)
-            | Cons x Nil -> (Cons x Nil, Nil)
-            | Cons x1 (Cons x2 l') -> let (l1, l2) = split l'
-                                  in (Cons x1 l1, Cons x2 l2)
-        end 
+      let open (n :accNumber) : ()
+        requires { not mem n accounts }
+        ensures  { mem n accounts /\ find n accounts = 0 }
+        ensures  { forall a :accNumber. mem a accounts <-> mem a (old accounts) \/ a = n } 
+        writes   { accounts }
+      = add n 0 accounts
+    
+      let deposit (n :accNumber) (x :amount) : () 
+        requires { mem n accounts /\ x > 0 }
+        ensures  { find n accounts = find n (old accounts) + x }
+        ensures  { forall a :accNumber. mem a accounts  /\ a <> n 
+                       -> find a accounts = find a (old accounts) }
+        ensures  { forall a :accNumber. mem a accounts <-> mem a (old accounts) } 
+        writes   { accounts }
+      = let bal = find n accounts in 
+        add n (bal+x) accounts 
     
 
-We would now like to prove the following lemma, meaning that the multiset of elements is preserved by splitting: 
+Note that: 
 
 
-    lemma split_lm: forall l :list int. 
-                let (l1,l2) = split l in permut l (l1 ++ l2)
-
-However, the `induction_ty_lex` proof transformation will not work, because unlike `insert` the `split` function is not defined by simple structural recursion.
-
-Why3 offers a way out of this difficulty in the form of a *lemma* *function.* This borrows from the program level of Why3 the capability to perform inductive proofs based on contracts. We will define a WhyML function that takes a list as argument, and write a postcondition corresponding to the lemma we are trying to prove (so `split` is naturally mentioned in it). The definition of the function simply expresses the induction principle that is required for the proof, by following the definition of `split`. 
-
-
-    let rec lemma split_lm (l :list int) : () 
-        ensures { let (l1,l2) = split l in permut l (l1 ++ l2) }
-        = match l with
-            | Nil -> ()
-            | Cons _ Nil -> ()
-            | Cons _ (Cons _ l') -> split_lm l'
-        end 
-
-The verification condition is proved, and the contract is inserted in the logic context as a lemma. The lemma function quite resembles the WhyML definition of `split` that we saw previously, but its only purpose is to provide a proof structure for its postcondition. 
-
-The same can be done for `merge` : 
-
-
-    function merge (l1 l2 :list int) : list int =
-        match l1, l2 with
-            | Nil, _ -> l2
-            | _, Nil -> l1
-            | (Cons a1 l1'), (Cons a2 l2') -> if a1 <= a2
-                                            then (Cons a1 (merge l1' l2))
-                                            else (Cons a2 (merge l1 l2'))
-        end
+- The postcondition highlighted in `deposit` expresses an obvious fact that is implicit in the natural language spec, but should be stated explicitly in the contract: all balances are preserved, with the exception of account `n`
     
-    let rec lemma merge_lm (l1 l2 :list int) : ()
-        requires { sorted l1 /\ sorted l2  }
-        ensures { sorted (merge l1 l2) }
-        ensures { permut (l1 ++ l2) (merge l1 l2) }
-        =
-        match l1, l2 with
-            | Nil, _ -> ()
-            | _, Nil -> ()
-            | (Cons a1 l1'), (Cons a2 l2') -> if a1 <= a2
-                                                then merge_lm l1' l2
-                                                else merge_lm l1 l2'
-        end
-
-One would then be tempted to write `mergesort` as the following logic function:
+- The contracts also include postconditions relating the keysets (domains) of the mapping before and after execution of each function
+    
+- The frame conditions   `writes ...`   make explicit the *effects* of the functions, i.e. the parts of the global state that are modified by them
 
 
-    function mergesort (l :list int) : list int 
-        =
-        match l with 
-            | Nil -> Nil
-            | Cons x Nil -> Cons x Nil
-            | _ ->   let (l1,l2) = split l
-                            in  merge (mergesort l1) (mergesort l2)
-    end
+
+## State Invariants
+
+We may wish to prove that certain properties of the global state always hold, i.e. they are invariants of all the state-changing functions. 
+
+For instance: 
+
+
+> The balance of every account is non-negative
+
+Such properties may be treated by simply including them simultaneously and pre- and postconditions in all functions. We may then add the following to the contracts of the functions defined above:
+
+
+        requires { forall a :accNumber. mem a accounts -> find a accounts >= 0 }
+        ensures  { forall a :accNumber. mem a accounts -> find a accounts >= 0 }
     
 
-This will not work: termination cannot be established automatically (because the recursive calls are not being performed on sublists of the argument `l`), so it is not possible to define mergesort as a `function` .  
 
-There is a way out of this. Recall that we know how to define mergesort as a WhyML function that is also a logic function. What we were not able to do yet is to define it as a logic function that *is not a program function*. The difficulty is that, since automatic termination cannot be established, we would like to proved a *variant*, but variants can only be used in program functions. 
-
-This may sound a little confusing at first, but Why3 provides a way to define logic functions that are not program functions, using program constructs and contracts. Ghost functions are written as WhyML code that is only interpreted logically, not meant to be executed. Mergesort can be defined as follows in the logic namespace, with the length of the argument list used as variant: 
+**Exercise**
+Complete the definition of the module by equipping the remaining functions with appropriate contracts and proving their correctness. Also, 
 
 
-    let rec ghost function mergesort (l :list int) : list int 
-        variant { length l }
-        = match l with 
-            | Nil -> Nil
-            | Cons x Nil -> Cons x Nil
-            | _ ->   let (l1,l2) = split l
-                            in  merge (mergesort l1) (mergesort l2)
-    end
+      let withdraw (n :accNumber) (x :amount) : () 
+      = let bal = find n accounts in 
+        add n (bal-x) accounts 
     
-
-Its correctness is established through the following lemma function, where the `assert` statements act as intermediate lemmas:
-
-
-    let rec lemma mergesort_lm (l :list int) : ()
-        ensures { sorted (mergesort l) }
-        ensures { permut l (mergesort l) } 
-        variant { length l }
-        =
-        match l with 
-            | Nil -> ()
-            | Cons _ Nil -> ()
-            | _ ->   let (l1,l2) = split l 
-                    in assert { permut l (l1 ++ l2) } ; 
-                        mergesort_lm l1 ; 
-                        mergesort_lm l2 ; 
-                        assert { permut l (mergesort l1 ++ mergesort l2) } 
-        end
+      let transfer (from :accNumber) (to_ :accNumber) (x :amount) : () 
+      = let balfrom = find from accounts in 
+        let balto   = find to_  accounts in 
+        add to_  (balto  +x) accounts ;
+        add from (balfrom-x) accounts 
     
 
 
 
 
-## Refinement in Why3
+## Record types and type invariants
 
-[[permalink](https://why3.lri.fr/try/?name=test.mlw&lang=whyml&code=AN4moduleyMergeSort%2FNH1use1int7tA1IntHq2listqA2ListHqqq4LengthHqqq4PermutHqqq4AppendHqqqySortedInt%2FNNH1val6function3split7nzlB7vAle7oqopp7rrroJ5ensures771letm0l1lA0l2m7y4result0in4lengthe7xz27Xuhoo7Tyo7O3pflrnprgprpg79BHbbbgibAilbbb4permutgkk7KqkkfBNNFTT3mergellmBTATTjqBqqJ6requiresZ4sortedlUrkCfHWnpZpBHppafkbkekkBNFHW1recaymergesort%2FjXZZZiJccbffBHppbpjoBH5variantoSppFT3matchq2withJ781Nil7MzsHr2ConszxqpqqqHpz%2BoCBTWQ7rQWeuJeMMuLuMkPjlqqkqMD1endNNtNNNNNuAyMergeSortRefnm%2FNFuGuQ7tuBHquOquBHqqquBHqqquBHqqquBHqqquBNNNHVuHuHVZV7vAkdZqoppSrroJuI77hmTlUmQuJPuKe7xz2uBhoouBouDpflrnprgprpg79BHbbbgibAilbbbuFgkkuDkkfBFjuFluFJ78uGuGhrdBsjHouFzxpmmpppmsmHmo0x1mr0x2i7GoiXnahBbhcuTjA7mMdWkfeiiqehhMDuHNNNFfuQuQuFhil7vuPuPiqBqqJuC77uCluPrkC79HuQnpuQpBHppuQfkuQkekkBHuCkuOkkkkklFOuOnSnuOJ78uOpz%2BuPnHoqpoomHoguS0a1p7GIrpp0a2iuOk0ifnk7RymaCCCCCCCCCCCCB7HpC1may5require2case6analysiskk7xk7c8qUqiC7JoMl2thenlamruWX7mX7IoH2elsenlhrllm7GIoMDuSNNFH3cloneuAuguAuM7rrjBNH2goalythisReallyWorks%2F7vB4forallzlrAuSuS7tBuP0lsOuAluLuRouQuRroNHNNW)]
-
-Consider the following alternative WhyML version of mergesort:
+We could alternatively used a declarative / functional type for maps. We will illustrate their use with an alternative implementation of the above module
 
 
-        module MergeSort
-            use ...
-        
-            val function split (l :list int) : (list int, list int)
-                ensures { let (l1,l2) = result in length l < 2 \/ 
-                        (length l >= 2 /\ length l1 < length l /\ length l2 < length l) } 
-                ensures { let (l1,l2) = result in permut l (l1 ++ l2) } 
 
-            
-            val function merge (l1 l2 :list int) : list int
-                requires { sorted l1 /\ sorted l2  }
-                ensures { sorted result } 
-                ensures { permut (l1 ++ l2) result } 
-            
-            
-            let rec function mergesort (l :list int)
-                ensures { sorted result } 
-                ensures { permut result l } 
-                variant { length l }
-                =
-                match l with
-                | Nil -> Nil
-                | Cons x Nil -> Cons x Nil
-                | _ ->   let (l1,l2) = split l
-                        in merge (mergesort l1) (mergesort l2)
-                end
-        
-        end
-
-It differs from the previous version in the fact that no definitions are given for the helper functions. Instead, they are just declared (using `val`) with a signature and contract. The contracts contain all the necessary information to allow for the correctness of `mergesort` to be proved â€” its verification condition can be proved in the same way as in the previous version. 
-
-If we want to provide a concrete definition of mergesort, by giving definitions of `split` and `merge`, we must now *clone* the `MergeSort` module inside a new module, as follows:
-
-
-    module MergeSortRefnm
-        use ...
+    module Accounts_MapApp_Record
+      use int.Int
+      type accNumber = int 
+      type amount    = int
+      clone fmap.MapApp with type key = accNumber
     
-        let rec function split (l :list int) : (list int, list int)
-            ensures { let (l1,l2) = result in length l < 2 \/ 
-                    (length l >= 2 /\ length l1 < length l /\ length l2 < length l) } 
-            ensures { let (l1,l2) = result in permut l (l1 ++ l2) } 
-            =
-            match l with
-                | Nil -> (Nil, Nil)
-                | Cons x Nil -> (Cons x Nil, Nil)
-                | Cons x1 (Cons x2 l') -> let (l1, l2) = split l'
-                                        in (Cons x1 l1, Cons x2 l2)
-            end
-        
-        let rec function merge (l1 l2 :list int) : list int
-            requires { sorted l1 /\ sorted l2 }
-            ensures { sorted result } 
-            ensures { permut (l1 ++ l2) result } 
-            variant { length (l1 ++ l2) }
-            =
-            match l1, l2 with
-                | Nil, _ -> l2
-                | _, Nil -> l1
-                | (Cons a1 l1'), (Cons a2 l2') -> if (a1 <= a2)                        
-                                                then (Cons a1 (merge l1' l2))
-                                                else (Cons a2 (merge l1 l2'))
-        end
+      type state = { mutable bal: t amount }
+        invariant  { forall a :accNumber. mem a bal -> find a bal >= 0 }
+        by { bal = create() }
     
-    clone MergeSort with val split, val merge 
+      val accounts :state
     
-    goal thisReallyWorks : 
-        forall l :list int. let ls = mergesort l 
-                                in sorted ls /\ permut ls l
+
+Declaring the state using a record type allows us to include the state invariant directly in the type definition, which makes it unnecessary to include it explicitly as a pre- and postcondition in function definitions (verification conditions will be created automatically for all state-changing functions, ensuring the preservation of the type invariant). 
+
+Note that: 
+
+- The `by` clause is mandatory. Its role is to provide a witness satisfying the type invariant. We simply provide the empty mapping as example (it is returned by the `create` function)
+- Record fields are by default immutable (as in functional programming). Mutable fields must be explicitly identified as above
+
+Both in the code and the spec, the balance value will have to be referred using record field notation. Note also the use of the `<-` assignment operator: since we are now using an applicative map type, the `add` function may not have side effects â€” in functional style, it takes a map and returns a new map).
+
+
+      let open (n :accNumber) : ()
+        requires { not mem n accounts.bal }
+        ensures  { mem n accounts.bal /\ find n accounts.bal = 0 }
+        ensures  { forall a :accNumber. mem a accounts.bal <-> mem a (old accounts.bal) \/ a = n } 
+        writes   { accounts.bal }
+      = accounts.bal <- add n 0 accounts.bal 
     
-    end
+      let deposit (n :accNumber) (x :amount) : () 
+        requires { mem n accounts.bal /\ x > 0 }
+        ensures  { find n accounts.bal = find n (old accounts.bal) + x }
+        ensures  { forall a :accNumber. mem a accounts.bal  /\ a <> n 
+                    -> find a accounts.bal = find a (old accounts.bal) }
+        ensures  { forall a :accNumber. mem a accounts.bal <-> mem a (old accounts.bal) } 
+        writes   { accounts.bal }
+      = let baln = find n accounts.bal in
+        accounts.bal <- add n (baln+x) accounts.bal 
 
-Cloning the `MergeSort` module inside `MergeSortRefnm` will copy the former into the latter, instantiating the elements mentioned after `with` : the functions `split` and `merge` are given a definition in the cloning module. Observe that this will generate verification conditions to establish that the refinement of the contracts declared in `MergeSort` with the definitions of `MergeSortRefnm` is correct, i.e. for each function, the contract in the cloning module is not weaker than the contract in the cloning module.
-
-In the present example both functions have exactly the same contract in the defined function as in the cloned declaration, so these VCs are proved trivially. Together, the VCs generated for the two modules imply that we have a correct implementation of merge sort, because: 
-
-
-- The validity of the `MergeSort` VCs implies that the `mergesort` implementation is correct if `split` and `merge` are implemented according to the specifications given in the module. 
+**Exercise**
+Complete the definition of this alternative implementation, by writing all the remaining functions and their contracts (do not include the type invariant in the contracts). 
+Observe carefully all verification conditions, in particular those pertaining to the type invariant. 
 
 
-- The validity of the `MergeSortRefnm` VCs implies that the implementations of `split` and `merge` are correct according to the specifications given in this module, and moreover (for the VCs generated by cloning) they are also correct with respect to the contracts in the `MergeSort` module (which happen to be the same). 
+
+
+## Challenge
+
+Consider now that we want to prove properties involving the global assets held in the accounts:
+
+
+- The `create` and `transfer` functions do not modify the total value of these assets;
+-  `deposit` and `withdraw` increase or decrease the total value by `x` 
+
+In order to state these properties we need a way to compute this global value (at logic level). The problem is that the domain of the map types is a set, and thus **not iterable**.  
+
+We may address this problem by including in the record type a *ghost field* **of a list type **(i.e. a field that is not meant for programming, only kept for specification/logic purposes), and including in the type invariant information tying the list to the domain of the map;
+
+
+      use list.Mem
+    
+      type state = { mutable bal: t amount ; mutable ghost domain : list accNumber }
+        invariant  { (forall a :accNumber. mem a bal -> find a bal >= 0) /\
+                     (forall a :accNumber. MapApp.mem a bal <-> Mem.mem a domain) }
+        by { bal = create() ; domain = Nil }
+    
+      val accounts :state
+
+
+Now write a function to calculate the total value of the assets in the accounts (by traversing the domain list), and use it to extend the contracts with the properties expressed above.
