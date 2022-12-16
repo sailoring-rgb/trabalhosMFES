@@ -1,0 +1,143 @@
+
+(*
+
+This exercise is based on a model of an emailing system. The system
+is modeled through two state variables, "sent" (a set of messages) and
+"inbox" (a dictionary mapping users to sets of messages - individual
+inboxes). The overall goal is to complete the *specifications* of the
+two functions "send" and "receive", so that the type invariant
+provided is respected, and also the execution functions scenario1 and
+scenario2 can be fully verified. Scenario3 should not be fully
+verified, as it contains an error - it plays the role of a sanity
+check.
+
+You should write adequate preconditions and postconditions for "send"
+and "receive". If required, feel free to strengthen the type
+invariant, including additional information. All the verification
+conditions generated should be provable in the TryWhy3 platform, with
+the exception of some VCs generated for Scenario3. 
+
+*)
+
+
+
+module Email
+
+  use int.Int
+
+  type user 
+  type content
+  type message = { from : user;
+       	       	   tto : user; 
+                   content : content }
+
+  clone set.SetApp with type elt = message
+
+  clone fmap.MapApp with type key = user 
+
+
+  type statetype = { mutable sent : set ; mutable inbox : t set }
+    invariant { (forall u :user, m :message.
+            (* Para uma mensagem estar no inbox de um user, então esse user tem de ser o destinatário da mensagem *)
+            mem u inbox /\ SetApp.mem m (inbox u) -> m.tto = u)
+            /\
+            (* Se a mensagem estiver no conjunto sent, então não pode estar no inbox do destinatário, e vice-versa *)
+            (* SetApp.mem m sent -> not SetApp.mem m (find m.tto inbox) *) 
+            true }
+    by { sent = empty() ; inbox = create() }
+
+
+  val state : statetype
+
+
+
+
+
+  let send (f t :user) (c :content) : ()
+
+    (* O destinatário tem de ter uma caixa de mensagens associada e não foi ainda enviada. *)
+    requires { mem t state.inbox /\ not SetApp.mem { from=f ; tto=t ; content=c } state.sent }
+
+    (* O destinatário tem de continuar a ter uma caixa de mensagens associada e a mensagem já foi enviada. *)
+    ensures  { mem t state.inbox /\ SetApp.mem { from=f ; tto=t ; content=c } state.sent }
+
+    (* O conjunto de mensagens enviadas continua igual, mas agora com uma mensagem nova a mais. *) 
+    ensures  { forall m :message. SetApp.mem m state.sent <-> SetApp.mem m (old state.sent) \/ m = { from=f ; tto=t ; content=c }  }
+    
+    (* O cardinal do conjunto de mensagens incrementa. *)
+    ensures  { cardinal state.sent = cardinal (old state.sent) + 1 }
+    writes   { state.sent }
+
+  = let m = { from=f ; tto=t ; content=c } in 
+    state.sent <- SetApp.add m state.sent
+
+
+
+
+  let receive (t :user) (m :message) : ()
+
+    (* O destinatário tem de ter uma caixa de mensagens associada.
+       A mensagem tem de ter sido enviada.
+       O user passado como argumento tem de ser o destinatário.*)
+    requires { mem t state.inbox /\ SetApp.mem m state.sent /\ m.tto = t }
+
+    (* O destinatário tem de continuar a ter uma caixa de mensagens associada.
+       A mensagem deixa de pertencer ao conjunto de mensagens enviadas.
+       A mensagem é recebida e passa a pertencer à caixa de mensagens do destinatário.*)
+    ensures  { mem t state.inbox /\ not (SetApp.mem m state.sent) /\ SetApp.mem m (find t state.inbox) }
+
+    (* Se um determinado user já tinha uma caixa de mensagens associada, então continua a ter.
+       Se um determinado user tem uma caixa de mensagens associada, então é porque antes da execução do receive também tinha.*)
+    ensures  { forall u :user, ma: message. mem u (old state.inbox) <-> mem u state.inbox }
+
+    (* Uma mensagem só é recebida se e só se tiver sido recebida antes ou for a mensagem passada como argumento e o destinatário for o passado.*)
+    ensures  { forall u :user, ma: message. mem u state.inbox /\ SetApp.mem ma (find u state.inbox) <-> (mem u (old state.inbox) /\ SetApp.mem ma (find u (old state.inbox))) \/ (t = u /\ m = ma) }
+
+    (* Uma mensagem só faz do conjunto de mensagens enviadas se e só se fizer partes antes da execução e não for a mensagem passada como argumento. *)
+    ensures  { forall ma: message. ma <> m /\ SetApp.mem ma (old state.sent) <-> SetApp.mem ma state.sent }
+
+    (* O cardinal do conjunto de mensagens enviadas decrementa. *)
+    ensures  { cardinal state.sent = cardinal (old state.sent) - 1 }
+    writes   { state.sent, state.inbox }
+
+  = let umsgs = SetApp.add m (find t state.inbox) in
+        state.inbox <- add t umsgs state.inbox;
+        state.sent <- SetApp.remove m state.sent
+
+
+
+
+  val u :user
+  val f :user
+  val t :user
+  val c :content
+
+
+  let scenario1 ()
+    requires { let m = { from=u ; tto=u ; content=c } 
+               in not SetApp.mem m state.sent }
+    requires { mem u state.inbox }
+    ensures  { cardinal (state.sent) = cardinal (old state.sent) }
+  = send u u c ; receive u { from=u ; tto=u ; content=c } 
+
+
+  let scenario2 ()
+    requires { SetApp.is_empty(state.sent) }
+    requires { mem u state.inbox }
+    requires { mem t state.inbox }
+    requires { u<>t }        
+    ensures  { SetApp.is_empty(state.sent) }
+  = send f u c ; send f t c ; receive u { from=f ; tto=u ; content=c } ; receive t { from=f ; tto=t ; content=c } 
+
+
+  (* FAIL - checks inconsistencies *)
+  let scenario3 ()  
+    requires { let m = { from=u ; tto=u ; content=c } in not SetApp.mem m state.sent }
+    requires { mem u state.inbox }
+    ensures  { cardinal (state.sent) = cardinal (old state.sent) }
+  = send u u c ; receive u { from=f ; tto=u ; content=c } 
+
+
+
+
+end
