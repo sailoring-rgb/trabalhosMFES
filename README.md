@@ -7,7 +7,7 @@ TPCs realizados em Métodos Formais em Engenharia de Software 22/23:
 -   Classificação do TPC3: 5/5
 -   Classificação do TPC4: .../5
 
-#### NOTA
+### ATENÇÃO
 
 No folder TP2, existem dois ficheiros:
 
