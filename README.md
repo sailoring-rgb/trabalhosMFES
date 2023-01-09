@@ -11,5 +11,5 @@ TPCs realizados em Métodos Formais em Engenharia de Software 22/23:
 
 No folder TP2, existem dois ficheiros:
 
--   O **submetido** (que obteve a contação 3/5)
--   Outro **completamente correto** (que obteria a contação 5/5)
+-   O **submetido** (que `obteve` a contação 3/5)
+-   Outro **completamente correto** (que `obteria` a contação 5/5)
