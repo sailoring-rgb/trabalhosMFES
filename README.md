@@ -1,15 +1,15 @@
 # MFES
 
-TPCs realizados em Métodos Formais em Engenharia de Software 22/23:
+Exercises done in <strong><i>Formal Methods in Software Engineering 22/23</i></strong>:
 
--   Classificação do TPC1: 5/5
--   Classificação do TPC2: 3/5
--   Classificação do TPC3: 5/5
--   Classificação do TPC4: 5/5
+- <a href="https://github.com/sailoring-rgb/trabalhosMFES/tree/main/TPC1">TPC1</a> Classification: 5/5
+- <a href="https://github.com/sailoring-rgb/trabalhosMFES/tree/main/TPC2">TPC2</a> Classification: 3/5
+- <a href="https://github.com/sailoring-rgb/trabalhosMFES/tree/main/TPC3">TPC3</a> Classification: 5/5
+- <a href="https://github.com/sailoring-rgb/trabalhosMFES/tree/main/TPC4">TPC4</a> Classification: 5/5
 
-### ATENÇÃO
+### IMPORTANT (!!)
 
-No folder TP2, existem dois ficheiros:
+In folder <a href="https://github.com/sailoring-rgb/trabalhosMFES/tree/main/TPC2">TPC2</a>, there are two files:
 
--   O **submetido** (que `obteve` a contação 3/5)
--   Outro **completamente correto** (que `obteria` a contação 5/5)
+- The <a href="https://github.com/sailoring-rgb/trabalhosMFES/blob/main/TPC2/tpc2_submitted.als"><strong>submitted</strong></a> one (which `got` a score of 3/5)
+- The <a href="https://github.com/sailoring-rgb/trabalhosMFES/blob/main/TPC2/tpc2_fully_correct.als"><strong>fully correct</strong></a> one (which `got` a score of 5/5)
